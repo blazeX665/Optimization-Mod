@@ -6,9 +6,8 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.CloudRenderMode;
 import net.minecraft.client.option.GameOptions;
-import net.minecraft.client.option.GraphicsMode;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.option.ParticlesMode;
+import net.minecraft.client.option.SimpleOption;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -40,6 +39,14 @@ public class BlazeBoostClient implements ClientModInitializer {
         });
     }
 
+    /** Picks the enum constant at the given index (ParticlesMode: 0=ALL, 1=DECREASED, 2=MINIMAL). */
+    private static <T extends Enum<T>> void setEnumIndex(SimpleOption<T> option, int index) {
+        T[] values = option.getValue().getDeclaringClass().getEnumConstants();
+        if (index >= 0 && index < values.length) {
+            option.setValue(values[index]);
+        }
+    }
+
     private static void applySettings(MinecraftClient client) {
         GameOptions o = client.options;
         o.getViewDistance().setValue(8);
@@ -47,9 +54,8 @@ public class BlazeBoostClient implements ClientModInitializer {
         o.getEntityDistanceScaling().setValue(0.6);
         o.getBiomeBlendRadius().setValue(0);
         o.getMipmapLevels().setValue(0);
-        o.getParticles().setValue(ParticlesMode.DECREASED);
+        setEnumIndex(o.getParticles(), 1);
         o.getCloudRenderMode().setValue(CloudRenderMode.OFF);
-        o.getGraphicsMode().setValue(GraphicsMode.FAST);
         o.getAo().setValue(false);
         o.getEntityShadows().setValue(false);
         o.getEnableVsync().setValue(false);
