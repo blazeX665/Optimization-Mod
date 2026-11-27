@@ -1,0 +1,69 @@
+name: Build installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download OBS 27.2.4 (last version for Windows 7)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $info = gh release view 27.2.4 --repo obsproject/obs-studio --json assets | ConvertFrom-Json
+          $zip = $info.assets | Where-Object { $_.name -like '*.zip' -and $_.name -notlike '*pdb*' } | Select-Object -First 1
+          Write-Host "Using asset: $($zip.name)"
+          gh release download 27.2.4 --repo obsproject/obs-studio --pattern $zip.name --dir dl
+          Expand-Archive -Path "dl\$($zip.name)" -DestinationPath build\app
+          if (-not (Test-Path build\app\bin\64bit\obs64.exe)) { throw 'obs64.exe not found' }
+
+      - name: Add profiles, scene and launcher
+        shell: pwsh
+        run: |
+          $cfg = 'build\app\config\obs-studio'
+          $profiles = @{
+            'Recorder_NVIDIA' = @{ enc = 'ffmpeg_nvenc'; json = '{"bitrate":50000,"rate_control":"CBR","preset":"hq","profile":"high"}' }
+            'Recorder_AMD'    = @{ enc = 'amd_amf_h264'; json = '{"bitrate":40000,"rate_control":"CBR"}' }
+            'Recorder_Intel'  = @{ enc = 'obs_qsv11'; json = '{"bitrate":40000,"rate_control":"CBR"}' }
+            'Recorder_CPU'    = @{ enc = 'obs_x264'; json = '{"bitrate":25000,"rate_control":"CBR","preset":"veryfast"}' }
+          }
+          $tpl = Get-Content -Raw -Encoding UTF8 'files\basic.ini.tpl'
+          foreach ($name in $profiles.Keys) {
+            $dir = "$cfg\basic\profiles\$name"
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $ini = $tpl.Replace('@NAME@', $name).Replace('@ENC@', $profiles[$name].enc)
+            [IO.File]::WriteAllText("$PWD\$dir\basic.ini", $ini, (New-Object Text.UTF8Encoding $false))
+            [IO.File]::WriteAllText("$PWD\$dir\recordEncoder.json", $profiles[$name].json, (New-Object Text.UTF8Encoding $false))
+          }
+          New-Item -ItemType Directory -Force -Path "$cfg\basic\scenes" | Out-Null
+          Copy-Item files\Minecraft.json "$cfg\basic\scenes\Minecraft.json"
+          Copy-Item files\global.ini "$cfg\global.ini"
+          Copy-Item files\Start-Recorder.bat build\app\Start-Recorder.bat
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+          if (-not (Test-Path dist\GameRecorder-Setup.exe)) { throw 'installer not built' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameRecorder-Setup
+          path: dist/GameRecorder-Setup.exe
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.$env:GITHUB_RUN_NUMBER" dist\GameRecorder-Setup.exe --title "Game Recorder build $env:GITHUB_RUN_NUMBER" --notes "OBS Studio 27.2.4 + ready profiles. Run the installer, then use the Game Recorder shortcut. F9 = start/stop recording."
